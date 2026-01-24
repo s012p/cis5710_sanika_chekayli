@@ -1,0 +1,6 @@
+<testsuites name="results">
+  <testsuite name="all" package="all">
+    <property name="random_seed" value="12345" />
+    <testcase name="test_halfadder" classname="testbench" file="/workspaces/cis5710-sp26/hw1-systemverilog/testbench.py" lineno="142" time="0.011408567428588867" sim_time_ns="9.0" ratio_time="788.8808175377735" />
+  </testsuite>
+</testsuites>
