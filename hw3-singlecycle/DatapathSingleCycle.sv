@@ -29,6 +29,26 @@ module RegFile (
   logic [`REG_SIZE] regs[NumRegs];
 
   // TODO: your code here
+  always_comb begin
+    if (rs1 != 0)
+      rs1_data = regs[rs1];
+    else
+      rs1_data = 32'd0;
+    if (rs2 != 0)
+      rs2_data = regs[rs2];
+    else
+      rs2_data = 32'd0;
+  end
+  
+  always_ff @(posedge clk) begin
+    if (rst != 1 && we == 1) begin
+      regs[rd] <= rd_data;
+    end else if (rst == 1) begin
+        for (int i = 0; i < NumRegs; i++) begin
+          regs[i] <= 32'd0;
+        end
+    end
+  end
 
 endmodule
 
@@ -201,28 +221,228 @@ module DatapathSingleCycle (
   // TODO: you will need to edit the port connections, however.
   wire [`REG_SIZE] rs1_data;
   wire [`REG_SIZE] rs2_data;
+  logic [`REG_SIZE] rd_data;
+  logic write;
+
   RegFile rf (
     .clk(clk),
     .rst(rst),
-    .we(1'b0),
-    .rd(0),
-    .rd_data(0),
-    .rs1(0),
-    .rs2(0),
+    .we(write),
+    .rd(insn_rd),
+    .rd_data(rd_data),
+    .rs1(insn_rs1),
+    .rs2(insn_rs2),
     .rs1_data(rs1_data),
     .rs2_data(rs2_data));
 
+  logic [31:0] a; 
+  logic [31:0] b;
   logic illegal_insn;
+  logic [31:0] temp_sum;
+
+  CarryLookaheadAdder ca
+  (.a(a),
+    .b(b),
+   .cin(0),
+    .sum(temp_sum));
+
 
   always_comb begin
     illegal_insn = 1'b0;
-
+    write = 1'b0;
+    rd_data = '0;
+    a = '0;
+    b = '0;
+    halt = 1'b0;
+    trace_completed_pc = pcCurrent;
+    trace_completed_insn = insn_from_imem;
+    trace_completed_cycle_status = CYCLE_NO_STALL;
     case (insn_opcode)
       OpLui: begin
-        // TODO: start here by implementing lui
+        write = 1'd1;
+        rd_data = insn_from_imem[31:12] << 12;
+        pcNext = pcCurrent + 4;
+      end
+      OpRegImm: begin
+        if (insn_addi) begin
+          write = 1'd1;
+          a = rs1_data;
+          b = imm_i_sext;
+          rd_data = temp_sum;
+          pcNext = pcCurrent + 4;
+        end
+        else if (insn_slti) begin
+          write = 1'd1;
+          if ($signed(rs1_data) < $signed(imm_i_sext)) begin
+            rd_data = 1;
+          end else begin
+            rd_data = '0;
+          end
+          pcNext = pcCurrent + 4;
+        end
+        else if (insn_sltiu) begin
+          write = 1'd1;
+          if (rs1_data < imm_i_sext) begin
+            rd_data = 1;
+          end else begin
+            rd_data = '0;
+          end
+          pcNext = pcCurrent + 4;
+        end
+        else if (insn_andi) begin
+          write = 1'd1;
+          rd_data = rs1_data & imm_i_sext;
+          pcNext = pcCurrent + 4;
+        end
+        else if (insn_slli) begin
+          write = 1'd1;
+          rd_data = rs1_data << insn_from_imem[24:20];
+          pcNext = pcCurrent + 4;
+        end
+        else if (insn_srli) begin
+          write = 1'd1;
+          rd_data = rs1_data >> insn_from_imem[24:20];
+          pcNext = pcCurrent + 4;
+        end
+        else if (insn_srai) begin
+          write = 1'd1;
+          rd_data = $signed(rs1_data) >>> $signed(insn_from_imem[24:20]);
+          pcNext = pcCurrent + 4;
+        end
+        else if (insn_ori) begin
+          write = 1'd1;
+          rd_data = rs1_data | imm_i_sext;
+          pcNext = pcCurrent + 4;
+        end
+        else if (insn_xori) begin
+          write = 1'd1;
+          rd_data = rs1_data ^ imm_i_sext;
+          pcNext = pcCurrent + 4;
+        end
+        else begin
+          pcNext = pcCurrent + 4;
+        end
+      end
+      OpBranch: begin
+        if (insn_bne) begin
+          if (rs1_data != rs2_data) begin
+            pcNext = pcCurrent + imm_b_sext;
+          end else begin
+            pcNext = pcCurrent + 4;
+          end 
+        end else if (insn_beq) begin
+          if (rs1_data == rs2_data) begin
+            pcNext = pcCurrent + imm_b_sext;
+          end else begin
+            pcNext = pcCurrent + 4;
+          end 
+        end
+        else if (insn_blt) begin
+          if ($signed(rs1_data) < $signed(rs2_data)) begin
+            pcNext = pcCurrent + imm_b_sext;
+          end else begin
+            pcNext = pcCurrent + 4;
+          end 
+        end
+        else if (insn_bltu) begin
+          if (rs1_data < rs2_data) begin
+            pcNext = pcCurrent + imm_b_sext;
+          end else begin
+            pcNext = pcCurrent + 4;
+          end 
+        end
+        else if (insn_bge) begin
+          if ($signed(rs1_data) >= $signed(rs2_data)) begin
+            pcNext = pcCurrent + imm_b_sext;
+          end else begin
+            pcNext = pcCurrent + 4;
+          end 
+        end
+        else if (insn_bgeu) begin
+          if (rs1_data >= rs2_data) begin
+            pcNext = pcCurrent + imm_b_sext;
+          end else begin
+            pcNext = pcCurrent + 4;
+          end 
+        end
+        else begin
+          pcNext = pcCurrent + 4;
+        end
+      end
+      OpEnviron: begin
+        halt = 1'b1;
+        pcNext = pcCurrent + 4;
+      end
+       OpRegReg: begin
+        if (insn_add) begin
+          write = 1'd1;
+          a = rs1_data;
+          b = rs2_data;
+          rd_data = temp_sum;
+          pcNext = pcCurrent + 4;
+        end
+        else if (insn_slt) begin
+          write = 1'd1;
+          if ($signed(rs1_data) < $signed(rs2_data)) begin
+            rd_data = 1;
+          end else begin
+            rd_data = '0;
+          end
+          pcNext = pcCurrent + 4;
+        end
+        else if (insn_sltu) begin
+          write = 1'd1;
+          if (rs1_data < rs2_data) begin
+            rd_data = 1;
+          end else begin
+            rd_data = '0;
+          end
+          pcNext = pcCurrent + 4;
+        end
+        else if (insn_sub) begin
+          write = 1'd1;
+          a = rs1_data;
+          b = $signed(~rs2_data + 1);
+          rd_data = temp_sum;
+          pcNext = pcCurrent + 4;
+        end
+        else if (insn_and) begin
+          write = 1'd1;
+          rd_data = rs1_data & rs2_data;
+          pcNext = pcCurrent + 4;
+        end
+        else if (insn_sll) begin
+          write = 1'd1;
+          rd_data = rs1_data << rs2_data[4:0];
+          pcNext = pcCurrent + 4;
+        end
+        else if (insn_srl) begin
+          write = 1'd1;
+          rd_data = rs1_data >> rs2_data[4:0];
+          pcNext = pcCurrent + 4;
+        end
+        else if (insn_sra) begin
+          write = 1'd1;
+          rd_data = $signed(rs1_data) >>> $signed(rs2_data[4:0]);
+          pcNext = pcCurrent + 4;
+        end
+        else if (insn_or) begin
+          write = 1'd1;
+          rd_data = rs1_data | rs2_data;
+          pcNext = pcCurrent + 4;
+        end
+        else if (insn_xor) begin
+          write = 1'd1;
+          rd_data = rs1_data ^ rs2_data;
+          pcNext = pcCurrent + 4;
+        end
+        else begin
+          pcNext = pcCurrent + 4;
+        end
       end
       default: begin
         illegal_insn = 1'b1;
+        pcNext = pcCurrent + 4;
       end
     endcase
   end
