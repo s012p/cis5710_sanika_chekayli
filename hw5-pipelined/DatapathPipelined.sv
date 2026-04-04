@@ -419,7 +419,7 @@ module DatapathPipelined (
         is_load: 1'b0,
         is_store: 1'b0,
         is_mul: 1'b0,
-        waits_for_div: div_hazard_rs1 || div_hazard_rs2,
+        waits_for_div: div_any_inflight,
         funct3: 3'd0,
         alu_op: ALU_ADD,
         mul_op: MUL_LO,
@@ -598,6 +598,7 @@ module DatapathPipelined (
   logic [`REG_SIZE] x_operand_b;
   logic x_branch_taken;
   logic [`REG_SIZE] x_branch_target;
+  logic [`REG_SIZE] x_jump_target;
   logic [`REG_SIZE] x_jalr_target;
   logic signed [63:0] x_prod_ss;
   logic signed [63:0] x_prod_su;
@@ -621,7 +622,8 @@ module DatapathPipelined (
   end
 
   assign x_operand_b     = x_state.use_imm ? x_state.imm : x_rs2_eff;
-  assign x_branch_target = x_state.pc + x_state.imm;  // used for both branches and JAL
+  assign x_branch_target = x_state.pc + x_state.imm;
+  assign x_jump_target   = x_state.pc + x_state.imm;
   assign x_jalr_target   = (x_rs1_eff + x_state.imm) & 32'hFFFF_FFFE;
   assign x_prod_ss       = $signed(x_rs1_eff) * $signed(x_rs2_eff);
   assign x_prod_su       = $signed(x_rs1_eff) * $signed({1'b0, x_rs2_eff});
@@ -775,8 +777,6 @@ module DatapathPipelined (
   logic div_pipe_hold;
   logic x_hold_for_div;
   logic hold_front_for_div_insert;
-  logic div_hazard_rs1;   // any in-flight div writes to d_rs1
-  logic div_hazard_rs2;   // any in-flight div writes to d_rs2
   div_result_t d_div_calc;
 
   always_comb begin
@@ -785,16 +785,10 @@ module DatapathPipelined (
                        (d_uses_rs2 && !d_is_store && (d_rs2 == x_state.rd)));
 
     div_any_inflight = 1'b0;
-    div_dep_hazard   = 1'b0;
-    div_hazard_rs1   = 1'b0;
-    div_hazard_rs2   = 1'b0;
+    div_dep_hazard = 1'b0;
     for (int i = 0; i < `DIVIDER_STAGES; i = i + 1) begin
       if (div_pipe[i].valid) begin
         div_any_inflight = 1'b1;
-        if (div_pipe[i].rd != 5'd0) begin
-          if (d_uses_rs1 && (d_rs1 == div_pipe[i].rd)) div_hazard_rs1 = 1'b1;
-          if (d_uses_rs2 && (d_rs2 == div_pipe[i].rd)) div_hazard_rs2 = 1'b1;
-        end
       end
       if ((d_is_div || d_is_rem) && div_pipe[i].valid && (div_pipe[i].rd != 5'd0) &&
           ((d_uses_rs1 && (d_rs1 == div_pipe[i].rd)) ||
@@ -954,19 +948,25 @@ module DatapathPipelined (
         end
       end
 
-      // div_pipe_hold is currently always 0; shift the pipe unconditionally
-      for (div_idx = `DIVIDER_STAGES-1; div_idx > 0; div_idx = div_idx - 1) begin
-        div_pipe[div_idx] <= div_pipe[div_idx-1];
+      if (!div_pipe_hold) begin
+        for (div_idx = `DIVIDER_STAGES-1; div_idx > 0; div_idx = div_idx - 1) begin
+          div_pipe[div_idx] <= div_pipe[div_idx-1];
+        end
+        div_pipe[0] <= '{
+          valid: 1'b0,
+          pc: 32'd0,
+          insn: 32'd0,
+          cycle_status: CYCLE_DIV,
+          rd: 5'd0,
+          reg_write: 1'b0,
+          result: 32'd0
+        };
+      end else begin
+        for (div_idx = `DIVIDER_STAGES-1; div_idx > 0; div_idx = div_idx - 1) begin
+          div_pipe[div_idx] <= div_pipe[div_idx];
+        end
+        div_pipe[0] <= div_pipe[0];
       end
-      div_pipe[0] <= '{
-        valid: 1'b0,
-        pc: 32'd0,
-        insn: 32'd0,
-        cycle_status: CYCLE_DIV,
-        rd: 5'd0,
-        reg_write: 1'b0,
-        result: 32'd0
-      };
 
       if (x_branch_taken || x_state.is_jump || x_state.is_jalr) begin
         x_state <= '{
@@ -997,7 +997,7 @@ module DatapathPipelined (
         decode_state <= '{pc: 32'd0, insn: 32'd0, cycle_status: CYCLE_TAKEN_BRANCH};
 
         if (x_state.is_jump) begin
-          f_pc_current <= x_branch_target;
+          f_pc_current <= x_jump_target;
         end else if (x_state.is_jalr) begin
           f_pc_current <= x_jalr_target;
         end else begin
