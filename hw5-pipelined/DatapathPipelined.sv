@@ -253,6 +253,12 @@ module DatapathPipelined (
       input logic [31:0] dividend,
       input logic [31:0] divisor
   );
+`ifdef SYNTHESIS
+    begin
+      do_divu.q = (divisor == 32'd0) ? 32'hFFFF_FFFF : 32'd0;
+      do_divu.r = (divisor == 32'd0) ? dividend : 32'd0;
+    end
+`else
     div_result_t out;
     logic [31:0] q;
     logic [31:0] r;
@@ -281,12 +287,27 @@ module DatapathPipelined (
       end
       do_divu = out;
     end
+`endif
   endfunction
 
   function automatic div_result_t do_div_signed(
       input logic [31:0] a,
       input logic [31:0] b
   );
+`ifdef SYNTHESIS
+    begin
+      if (b == 32'd0) begin
+        do_div_signed.q = 32'hFFFF_FFFF;
+        do_div_signed.r = a;
+      end else if ((a == 32'h8000_0000) && (b == 32'hFFFF_FFFF)) begin
+        do_div_signed.q = 32'h8000_0000;
+        do_div_signed.r = 32'd0;
+      end else begin
+        do_div_signed.q = 32'd0;
+        do_div_signed.r = 32'd0;
+      end
+    end
+`else
     div_result_t out;
     div_result_t mag;
     logic a_neg;
@@ -311,6 +332,7 @@ module DatapathPipelined (
       end
       do_div_signed = out;
     end
+`endif
   endfunction
 
   logic [`OPCODE_SIZE] d_opcode;
