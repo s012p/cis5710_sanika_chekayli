@@ -497,12 +497,12 @@ module DatapathPipelined (
 			;
 		x_rs1_eff = x_state[95-:32];
 		x_rs2_eff = x_state[63-:32];
-		if ((m_state[103] && (m_state[113-:5] != 5'd0)) && (m_state[113-:5] == x_state[124-:5]))
-			x_rs1_eff = m_result_bypass;
+		if (((m_state[103] && !m_state[101]) && (m_state[113-:5] != 5'd0)) && (m_state[113-:5] == x_state[124-:5]))
+			x_rs1_eff = m_state[63-:32];
 		else if ((w_state[33] && (w_state[38-:5] != 5'd0)) && (w_state[38-:5] == x_state[124-:5]))
 			x_rs1_eff = w_state[31-:32];
-		if ((m_state[103] && (m_state[113-:5] != 5'd0)) && (m_state[113-:5] == x_state[119-:5]))
-			x_rs2_eff = m_result_bypass;
+		if (((m_state[103] && !m_state[101]) && (m_state[113-:5] != 5'd0)) && (m_state[113-:5] == x_state[119-:5]))
+			x_rs2_eff = m_state[63-:32];
 		else if ((w_state[33] && (w_state[38-:5] != 5'd0)) && (w_state[38-:5] == x_state[119-:5]))
 			x_rs2_eff = w_state[31-:32];
 	end

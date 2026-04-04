@@ -630,14 +630,14 @@ module DatapathPipelined (
     x_rs1_eff = x_state.rs1_val;
     x_rs2_eff = x_state.rs2_val;
 
-    if (m_state.reg_write && (m_state.rd != 5'd0) && (m_state.rd == x_state.rs1)) begin
-      x_rs1_eff = m_result_bypass;
+    if (m_state.reg_write && !m_state.is_load && (m_state.rd != 5'd0) && (m_state.rd == x_state.rs1)) begin
+      x_rs1_eff = m_state.result;
     end else if (w_state.reg_write && (w_state.rd != 5'd0) && (w_state.rd == x_state.rs1)) begin
       x_rs1_eff = w_state.result;
     end
 
-    if (m_state.reg_write && (m_state.rd != 5'd0) && (m_state.rd == x_state.rs2)) begin
-      x_rs2_eff = m_result_bypass;
+    if (m_state.reg_write && !m_state.is_load && (m_state.rd != 5'd0) && (m_state.rd == x_state.rs2)) begin
+      x_rs2_eff = m_state.result;
     end else if (w_state.reg_write && (w_state.rd != 5'd0) && (w_state.rd == x_state.rs2)) begin
       x_rs2_eff = w_state.result;
     end
@@ -1246,7 +1246,7 @@ module Processor (
       .load_data_from_dmem(mem_data_loaded_value),
       .halt(halt),
       .trace_completed_pc(trace_completed_pc),
-      .trace_completed_insn(trace_completed_insn),
+      .trace_completed_insn(trace_completed_make insn),
       .trace_completed_cycle_status(trace_completed_cycle_status)
   );
 
